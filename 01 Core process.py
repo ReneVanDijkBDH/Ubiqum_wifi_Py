@@ -81,6 +81,8 @@ def CreateWAPList(VData):
     
     #remove signals which are dirty
     VData = VData[(VData.USERID !=6) & (VData.USERID !=14) & (VData.WAPSignal<80) & (VData.WAPSignal >0) ]
+    
+    #create list of all WAP's
     WAPList = VData.groupby('WAP').agg(
             count = pd.NamedAgg(column='WAPSignal', aggfunc='count'),
             max   = pd.NamedAgg(column='WAPSignal', aggfunc = max))  
@@ -91,45 +93,52 @@ def CreateWAPList(VData):
             avg = pd.NamedAgg(column='WAPSignal', aggfunc='mean'),
             mx  = pd.NamedAgg(column='WAPSignal', aggfunc='max'))
     VLong.reset_index(inplace=True)
-        
-            ,'max']}).rename(
-            columns={'mean':'avg','max' : 'mx'})
-    Vlong['avg'] = np.exp(VLong['avg'])
-            
-            summarise(avg= exp(mean(WAPSignal)), 
-                      mx = exp(max(WAPSignal))) 
+    
+    #additional calculations required for exponential weigheted average
+    VLong['avg']        = np.exp(VLong['avg'])
+    VLong['mx']         = np.exp(VLong['mx'])
+    VLong['avglong']    = VLong['avg'] * VLong['LONGITUDE']
+    VLong['mxlong']     = VLong['mx']  * VLong['LONGITUDE'] 
+    
+    # Weighted average of Longitude per WAP
+    VLongWAP = VLong.groupby(['WAP']).agg(
+            avgsum      = pd.NamedAgg(column='avg',     aggfunc='sum'),
+            avglongsum  = pd.NamedAgg(column='avglong', aggfunc='sum'),
+            mxsum       = pd.NamedAgg(column='mx',      aggfunc='sum'),
+            mxlongsum   = pd.NamedAgg(column='mxlong',  aggfunc='sum'))
+    VLongWAP.reset_index(inplace=True)        
+    VLongWAP['Long_Max'] = VLongWAP['mxlongsum']  / VLongWAP['mxsum']
+    VLongWAP['Long_Avg'] = VLongWAP['avglongsum'] / VLongWAP['avgsum']    
+    
+    # add resulting weighted averages to WAPList
+    WAPList = pd.merge(WAPList, VLongWAP[['WAP','Long_Max','Long_Avg']], left_on='WAP', right_on='WAP', how='left')
+    
+     # group by latitude and WAP 
+    VLat = VData.groupby(['WAP','LATITUDE']).agg(
+            avg = pd.NamedAgg(column='WAPSignal', aggfunc='mean'),
+            mx  = pd.NamedAgg(column='WAPSignal', aggfunc='max'))
+    VLat.reset_index(inplace=True)
+    
+    #additional calculations required for exponential weigheted average
+    VLat['avg']        = np.exp(VLat['avg'])
+    VLat['mx']         = np.exp(VLat['mx'])
+    VLat['avglat']    = VLat['avg'] * VLat['LATITUDE']
+    VLat['mxlat']     = VLat['mx']  * VLat['LATITUDE'] 
+    
+    # Weighted average of Longitude per WAP
+    VLatWAP = VLat.groupby(['WAP']).agg(
+            avgsum      = pd.NamedAgg(column='avg',     aggfunc='sum'),
+            avglatsum  = pd.NamedAgg(column='avglat',   aggfunc='sum'),
+            mxsum       = pd.NamedAgg(column='mx',      aggfunc='sum'),
+            mxlatsum   = pd.NamedAgg(column='mxlat',    aggfunc='sum'))
+    VLatWAP.reset_index(inplace=True)        
+    VLatWAP['Lat_Max'] = VLatWAP['mxlatsum']  / VLatWAP['mxsum']
+    VLatWAP['Lat_Avg'] = VLatWAP['avglatsum'] / VLatWAP['avgsum']    
+    
+    # add resulting weighted averages to WAPList
+    WAPList = pd.merge(WAPList, VLatWAP[['WAP','Lat_Max','Lat_Avg']], left_on='WAP', right_on='WAP', how='left')
 
-# group by longitude and WAP 
-VLong <- VData %>%  
-            filter(WAPSignal>0 & WAPSignal<80 & USERID!=14 & USERID!=6 ) %>%
-            group_by(WAP, LONGITUDE) %>% 
-            summarise(avg= exp(mean(WAPSignal)), 
-                      mx = exp(max(WAPSignal))) %>%
-            ungroup()
-
-# Weighted average 
-WAPList <- WAPList %>% left_join((VLong %>% 
-  group_by(WAP) %>% 
-  summarise(Long_Max = sum(mx*LONGITUDE)/sum(mx),
-            Long_Avg = sum(avg*LONGITUDE)/sum(avg)) %>%
-  ungroup()), "WAP")
-
-# group by latitude and WAP 
-VLat <- VData %>%  
-  filter(WAPSignal>0 & WAPSignal<80 &USERID!=14 &USERID!=6) %>%
-  group_by(WAP, LATITUDE) %>% 
-  summarise(avg= exp(mean(WAPSignal)), 
-            mx = exp(max(WAPSignal))) %>%
-  ungroup()
-
-# Weighted average 
-WAPList <- WAPList %>% left_join((VLat %>% 
-                                    group_by(WAP) %>% 
-                                    summarise(Lat_Max = sum(mx*LATITUDE)/sum(mx),
-                                              Lat_Avg = sum(avg*LATITUDE)/sum(avg)) %>%
-                                    ungroup()), "WAP")
-return(WAPList)
-}
+    return(WAPList)
 
 
 #########################################################################
@@ -155,3 +164,8 @@ training, testing, obs_train, obs_test = train_test_split(DataModel, Observation
 # Vertical data-set of Training 
 trainingVert = ConvertToVerticalData(training)
 #trainingVert.to_csv('../Data/clean_data/trainingVert.csv')
+
+#Create WAPList
+WAPList = CreateWAPList(trainingVert)
+
+print('End of core process')
