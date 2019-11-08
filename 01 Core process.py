@@ -200,6 +200,37 @@ def VertTopN(Vert, TopN):
 #########################################################################
 ## Author:    René van Dijk
 ## Creation:  06-11-2019
+## Purpose:   extend vertical dataset with info related to the the WAP's
+#########################################################################
+
+def CreateExtendedVertical(VData, WAPList): 
+    VDataExt = pd.merge(VData, WAPList, left_on='WAP', right_on='WAP', how='left')
+
+    VDataExt['Distance'] = np.sqrt((VDataExt.Long_Max-VDataExt.LONGITUDE)**2+(VDataExt.Lat_Max-VDataExt.LATITUDE)**2)
+    VDataExt['Quadrant'] = np.where(VDataExt.Long_Max >= VDataExt.LONGITUDE, 
+                                           np.where(VDataExt.Lat_Max >= VDataExt.LATITUDE, 1, 2),
+                                           np.where(VDataExt.Lat_Max >= VDataExt.LATITUDE, 4, 3))
+    #VDataExt$DistanceBucket <- with(VDataExt, ifelse(Distance<=10,"close", ifelse(Distance<=20,"near", ifelse(Distance<=30,"mwah",
+    #                                                                                                          ifelse(Distance<=40,"oops","tsss")))))
+    #VDataExt$SignalBucket <- with(VDataExt, ifelse(maxSignal==0,"no max", ifelse(WAPSignal/maxSignal>0.9,"very strong",
+    #                                                                             ifelse(WAPSignal/maxSignal>0.7,"strong", 
+    #                                                                                    ifelse(WAPSignal/maxSignal>0.4,"medium","weak")))))
+    VDataExt['FLOOR'] = VDataExt['FLOOR'].astype('category')
+    VDataExt['BUILDINGID'] = VDataExt['BUILDINGID'].astype('category')
+    VDataExt['Quadrant'] = VDataExt['Quadrant'].astype('category')
+    
+    #VDataExt$DistanceBucket <- as.factor(VDataExt$DistanceBucket)
+    #VDataExt$SignalBucket <- as.factor(VDataExt$SignalBucket)
+  
+    # remove observations where WAP is not found in WAPList (VLong_Max is null)
+    VDataExt = VDataExt[~VDataExt.Long_Max.isnull()]
+    
+    return(VDataExt)
+
+
+#########################################################################
+## Author:    René van Dijk
+## Creation:  06-11-2019
 ## Purpose:   calculate longitude, Latitude and building 
 ##            per observation the WAP's with highest signals are given (VDataTop10)
 ##            the location of the WAP's is provided by the WAPList
@@ -228,7 +259,7 @@ def PredictLongLatBuilding(VDataTop10,WAPList):
     #                                  1,
     #                                  (VDataTop10['WAPSignal']-VDataTop10['min'])/(VDataTop10['max']-VDataTop10['min']))
     #VDataTop10['Weights'] = VDataTop10['WAPSignal'] /VDataTop10['max']
-    VDataTop10['Weights'] = VDataTop10['WAPSignal'] * VDataTop10['WAPSignal'] / VDataTop10['max']
+    #VDataTop10['Weights'] = VDataTop10['WAPSignal'] * VDataTop10['WAPSignal'] / VDataTop10['max']
     
     
     #VDataTop10 = VDataTop10.groupby(['ObservationID', 'LONGITUDE', 'LATITUDE', 'BUILDINGID', 'FLOOR',
@@ -301,8 +332,14 @@ trainingVert = ConvertToVerticalData(training)
 #Create WAPList
 WAPList = CreateWAPList(trainingVert)
 
+#extend vertical datazet with info from WAPList
+trainingVertExt = CreateExtendedVertical(trainingVert, WAPList)
+
+
+
 # Vertical data-set of Training and top 10 ranked highest stignals
 testingVert = ConvertToVerticalData(testing)
+testingVertExt = CreateExtendedVertical(testingVert, WAPList)
 #testingVertTop10 = VertTop10(testingVert)
 
 testingResults = PredictLongLatBuilding(testingVert,WAPList)
